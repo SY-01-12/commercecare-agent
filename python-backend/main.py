@@ -106,6 +106,55 @@ async def health_check() -> Dict[str, str]:
     return {"status": "healthy"}
 
 
+# -- RAG debug endpoints ------------------------------------------------------
+
+
+@app.get("/rag/stats")
+async def rag_stats() -> Dict[str, Any]:
+    """Return vector store statistics."""
+    from rag.store import get_collection_stats
+
+    return get_collection_stats()
+
+
+@app.get("/rag/retrieve")
+async def rag_retrieve_debug(
+    q: str = Query(..., description="Search query"),
+    top_k: int = Query(5, ge=1, le=20),
+    threshold: float = Query(0.45, ge=0.0, le=1.0),
+) -> Dict[str, Any]:
+    """Debug endpoint: retrieve documents from the knowledge base."""
+    from rag.store import retrieve as rag_retrieve_fn
+
+    results = rag_retrieve_fn(q, top_k=top_k, score_threshold=threshold)
+    return {
+        "query": q,
+        "count": len(results),
+        "threshold": threshold,
+        "results": results,
+    }
+
+
+@app.get("/rag/reindex")
+async def rag_reindex() -> Dict[str, Any]:
+    """Rebuild the RAG index from knowledge_base/ documents."""
+    from rag.loader import load_documents
+    from rag.splitter import split_markdown
+    from rag.store import index_documents, get_collection_stats
+
+    docs = load_documents()
+    chunks_per_doc = [split_markdown(d["content"]) for d in docs]
+    total_chunks = sum(len(c) for c in chunks_per_doc)
+    index_documents(docs, chunks_per_doc)
+
+    stats = get_collection_stats()
+    return {
+        "documents_loaded": len(docs),
+        "chunks_created": total_chunks,
+        "collection": stats,
+    }
+
+
 __all__ = [
     "CommerceCareAgentContext",
     "CommerceCareChatContext",

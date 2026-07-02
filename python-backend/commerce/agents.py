@@ -19,6 +19,7 @@ from .tools import (
     faq_lookup_tool,
     get_order_detail,
     lookup_order,
+    rag_retrieve_tool,
     request_refund,
     request_return,
     track_shipment,
@@ -29,6 +30,7 @@ MODEL = "gpt-5.2"
 # Aliases to avoid name collisions with function_tool objects in agent instructions.
 _lookup_order = lookup_order
 _faq_lookup = faq_lookup_tool
+_rag_retrieve = rag_retrieve_tool
 _track_shipment = track_shipment
 _get_order_detail = get_order_detail
 _request_refund = request_refund
@@ -75,19 +77,21 @@ triage_agent = Agent[CommerceCareChatContext](
 knowledge_support_agent = Agent[CommerceCareChatContext](
     name="Knowledge Support Agent",
     model=MODEL,
-    handoff_description="回答商品参数、保修、退换货政策、会员权益、支付方式等常见问题。",
+    handoff_description="回答商品参数、保修、退换货政策、会员权益、支付方式等常见问题，基于 RAG 知识库检索。",
     instructions=(
         f"{RECOMMENDED_PROMPT_PREFIX}\n"
         "你是智售管家的知识支持 Agent。你的职责是回答用户关于商品、政策和服务的常见问题。\n\n"
         "工作流程：\n"
-        "1. 识别用户的问题类别（商品参数/保修/退换货政策/物流政策/会员权益/支付方式）。\n"
-        "2. 使用 faq_lookup_tool 查询相关信息。不要凭自己的知识编造答案。\n"
-        "3. 用简洁清晰的中文回复用户。\n"
-        "4. 如果用户的问题超出知识库范围，诚实地告知并提供其他帮助方式。\n"
-        "5. 如果用户需要订单查询、物流追踪或售后操作，转接回 Triage Agent。\n\n"
-        "完成回答后无需转接（如果用户问题已回答完毕）。如果需要其他 Agent 处理，转接回 Triage Agent。"
+        "1. 识别用户的问题类别（商品参数/保修/退换货政策/物流政策/会员权益/支付方式/发票）。\n"
+        "2. 优先使用 rag_retrieve 从企业知识库中检索相关文档。\n"
+        "3. 如果 RAG 未找到相关内容，再使用 faq_lookup_tool 补充查询。\n"
+        "4. 用简洁清晰的中文回复用户，并附带检索到的来源文档名称。\n"
+        "5. 如果知识库和 FAQ 都没有覆盖用户的问题，不要编造答案！诚实地告知用户，并建议联系人工客服（拨打 400-888-6666）或转接 Human Handoff Agent。\n"
+        "6. 如果用户需要订单查询、物流追踪或售后操作，转接回 Triage Agent。\n\n"
+        "重要：不得凭自己的知识编造政策信息。所有政策回答必须基于检索到的文档内容。\n"
+        "完成回答后无需转接。如果需要其他 Agent 处理，转接回 Triage Agent。"
     ),
-    tools=[_faq_lookup],
+    tools=[_rag_retrieve, _faq_lookup],
     input_guardrails=[relevance_guardrail, safety_guardrail],
 )
 
