@@ -177,7 +177,101 @@ classDiagram
 
 ---
 
-## 5. CommerceCare Agent 改造目标架构
+## 5. Baseline 实际目录结构
+
+```
+commercecare-agent/
+├── .env.example
+├── .gitignore
+├── CLAUDE.md
+├── LICENSE                         # MIT（来自上游）
+├── NOTICE.md
+├── README.md
+├── docs/
+│   ├── upstream_audit.md
+│   ├── architecture_baseline.md
+│   ├── baseline_runbook.md
+│   └── project_roadmap.md
+├── python-backend/
+│   ├── main.py                     # FastAPI 入口，CORS，路由
+│   ├── server.py                   # ChatKitServer 子类，流式响应
+│   ├── memory_store.py             # 内存存储（ChatKit Store 接口）
+│   ├── requirements.txt            # Python 依赖
+│   ├── tests/
+│   │   └── test_baseline.py        # 11 个基础测试
+│   └── airline/
+│       ├── agents.py               # 6 Agent + Handoff 图
+│       ├── context.py              # Agent 上下文模型
+│       ├── guardrails.py           # Relevance + Jailbreak
+│       ├── tools.py                # 10 个 Mock 工具
+│       └── demo_data.py            # 2 套 Mock 行程数据
+└── ui/
+    ├── app/                        # Next.js App Router
+    │   ├── page.tsx                # 主页面
+    │   ├── layout.tsx              # 根布局
+    │   └── globals.css             # 全局样式
+    ├── components/                 # React 组件
+    │   ├── chatkit-panel.tsx       # ChatKit 聊天面板
+    │   ├── agents-list.tsx         # Agent 列表
+    │   ├── agent-panel.tsx         # Agent 详情
+    │   ├── runner-output.tsx       # Runner 执行轨迹
+    │   ├── guardrails.tsx          # Guardrail 状态
+    │   ├── seat-map.tsx            # 座位图组件
+    │   ├── conversation-context.tsx # 上下文面板
+    │   ├── panel-section.tsx       # 面板布局
+    │   └── ui/                     # 基础 UI 组件
+    ├── lib/                        # 工具函数
+    │   ├── api.ts                  # API 客户端
+    │   ├── types.ts                # TypeScript 类型
+    │   └── utils.ts                # 工具函数
+    ├── public/                     # 静态资源
+    ├── package.json
+    └── tsconfig.json
+```
+
+## 6. Baseline 调用链
+
+```mermaid
+sequenceDiagram
+    participant Browser as 浏览器 :3000
+    participant Next as Next.js
+    participant CK as ChatKit React
+    participant API as FastAPI :8000
+    participant S as AirlineServer
+    participant R as Runner
+    participant A as Agent (Triage/Specialist)
+    participant T as Tool
+    participant G as Guardrail
+
+    Browser->>Next: GET /
+    Next->>CK: 初始化 ChatKit
+    CK->>API: POST /chatkit/bootstrap
+    API->>S: snapshot(thread_id=None)
+    S-->>CK: agents[], current_agent, context
+
+    Browser->>CK: 输入消息
+    CK->>API: POST /chatkit (SSE)
+    API->>S: respond(thread, message)
+    S->>G: input_guardrails (Relevance + Jailbreak)
+    alt Guardrail 触发
+        G-->>S: tripwire_triggered=True
+        S-->>CK: 拒绝回复 + Guardrail 状态(红色)
+    else Guardrail 通过
+        G-->>S: passed
+        S->>R: run_streamed(agent, input_items)
+        loop Agent 循环
+            R->>A: model inference
+            A->>T: function_tool call
+            T-->>A: tool result
+            A->>A: handoff decision
+        end
+        R-->>S: 流式事件 (messages, tool_calls, handoffs)
+        S-->>CK: SSE stream
+        CK-->>Browser: 消息逐步渲染
+    end
+```
+
+## 7. CommerceCare Agent 改造目标架构（规划中）
 
 ```mermaid
 graph TB
