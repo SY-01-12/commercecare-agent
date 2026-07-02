@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import json
 import random
+import time
 from pathlib import Path
 
 from agents import RunContextWrapper, function_tool
 from chatkit.types import ProgressUpdateEvent
 
 from .context import CommerceCareChatContext
+from operations.ticket_system import create_ticket as _ticket_create, get_ticket_status as _ticket_status
+from operations.quality_log import log_event
 
 # -- Load mock data -----------------------------------------------------------
 
@@ -457,27 +460,169 @@ async def create_support_ticket(
     context: RunContextWrapper[CommerceCareChatContext],
     reason: str = "用户请求人工客服",
     priority: str = "normal",
+    category: str = "general",
 ) -> str:
-    """Create a human agent support ticket."""
+    """Create a human agent support ticket using the ticket system."""
     ctx = context.context.state
-    ticket_id = f"TK-{random.randint(10000, 99999)}"
-    ctx.ticket_id = ticket_id
-    ctx.ticket_status = "opened"
+    t_start = time.time()
+
+    ticket = _ticket_create(
+        summary=reason[:200],
+        category=category,
+        priority=priority,
+        reason=reason,
+        order_id=ctx.order_id,
+        customer_name=ctx.customer_name,
+    )
+
+    ctx.ticket_id = ticket.ticket_id
+    ctx.ticket_status = ticket.status
     ctx.escalation_reason = reason
 
-    await context.context.stream(ProgressUpdateEvent(text=f"工单 {ticket_id} 已创建"))
+    log_event(
+        session_id=ctx.order_id or "unknown",
+        user_intent="human_handoff",
+        routed_agent="Human Handoff Agent",
+        human_handoff_triggered=True,
+        tools_called=["create_support_ticket"],
+        tool_results=[ticket.ticket_id],
+        elapsed_ms=(time.time() - t_start) * 1000,
+    )
+
+    await context.context.stream(ProgressUpdateEvent(text=f"工单 {ticket.ticket_id} 已创建"))
 
     order_ref = f"\n关联订单：{ctx.order_id}" if ctx.order_id else ""
-
     return (
         f"🎫 人工工单已创建\n\n"
-        f"工单编号：{ticket_id}\n"
+        f"工单编号：{ticket.ticket_id}\n"
+        f"分类：{category}\n"
         f"优先级：{priority}\n"
         f"原因：{reason}{order_ref}\n"
         f"状态：处理中\n"
+        f"创建时间：{ticket.created_at[:19]}\n"
         f"预计处理时间：15分钟内\n\n"
         f"人工客服将在工作时间（每天8:00-22:00）内尽快联系您。"
         f"您也可以直接拨打客服热线 400-888-6666。"
+        f"\n如需查询工单进度，可使用工单编号 {ticket.ticket_id}。"
+    )
+
+
+@function_tool(
+    name_override="get_ticket_status",
+    description_override="按工单编号查询工单的当前状态和处理进度。",
+)
+async def get_ticket_status_tool(
+    context: RunContextWrapper[CommerceCareChatContext],
+    ticket_id: str | None = None,
+) -> str:
+    """Query the status of a support ticket."""
+    tid = ticket_id or context.context.state.ticket_id
+    if not tid:
+        return "请提供工单编号，或先创建工单后再查询。"
+
+    info = _ticket_status(tid)
+    if not info:
+        return f"未找到工单 {tid}。请确认工单编号是否正确。"
+
+    priority_label = {"urgent": "🔴 紧急", "high": "🟠 高", "normal": "🟡 普通", "low": "🟢 低"}
+    status_label = {"opened": "待处理", "in_progress": "处理中", "resolved": "已解决", "closed": "已关闭"}
+
+    lines = [
+        f"🎫 工单 {tid}",
+        f"状态：{status_label.get(info['status'], info['status'])}",
+        f"优先级：{priority_label.get(info['priority'], info['priority'])}",
+        f"分类：{info['category']}",
+        f"原因：{info['reason']}",
+        f"创建时间：{info['created_at'][:19]}",
+        f"更新时间：{info['updated_at'][:19]}",
+    ]
+    if info.get("notes"):
+        lines.append(f"备注：{'；'.join(info['notes'])}")
+    return "\n".join(lines)
+
+
+@function_tool(
+    name_override="get_logistics_status",
+    description_override="查询物流配送状态、当前节点和预计送达时间。",
+)
+async def get_logistics_status_tool(
+    context: RunContextWrapper[CommerceCareChatContext],
+    logistics_id: str | None = None,
+) -> str:
+    """Query logistics status for a shipment."""
+    lid = logistics_id or context.context.state.logistics_id
+    if not lid:
+        return "请提供物流单号，或先查询订单获取物流单号。"
+
+    shipment = _MOCK_LOGISTICS.get(lid)
+    if not shipment:
+        return f"未找到物流单号 {lid} 的配送信息。"
+
+    ctx = context.context.state
+    ctx.logistics_id = lid
+    ctx.logistics_status = shipment["status"]
+    ctx.estimated_delivery = shipment["estimated_delivery"]
+
+    status_map = {"in_transit": "🚚 运输中", "delivered": "✅ 已签收", "pending": "📋 待揽收", "exception": "⚠️ 异常"}
+    cn_status = status_map.get(shipment["status"], shipment["status"])
+
+    lines = [
+        f"📮 物流单号：{lid}",
+        f"承运商：{shipment['carrier']}",
+        f"状态：{cn_status}",
+        f"预计送达：{shipment['estimated_delivery']}",
+        f"当前节点：{shipment['current_node']}",
+    ]
+    for node in shipment["nodes"]:
+        lines.append(f"  {node['time']}  {node['status']} — {node['location']}")
+    if shipment.get("notes"):
+        lines.append(f"\n备注：{shipment['notes']}")
+    return "\n".join(lines)
+
+
+@function_tool(
+    name_override="create_exchange_request",
+    description_override="发起换货申请。⚠️ 此操作需要用户二次确认。仅已签收且符合换货条件的订单可申请。",
+)
+async def create_exchange_request(
+    context: RunContextWrapper[CommerceCareChatContext],
+    reason: str = "商品质量问题",
+) -> str:
+    """Initiate an exchange/swap request. Requires confirmation."""
+    ctx = context.context.state
+    order_id = ctx.order_id
+
+    if not order_id or order_id not in _MOCK_ORDERS:
+        return "请先查询订单，再申请换货。"
+
+    order = _MOCK_ORDERS[order_id]
+    if order["status"] != "delivered":
+        return f"订单 {order_id} 状态为 {order['status']}，需先签收后才能申请换货。"
+    if order.get("after_sales_status"):
+        return f"订单 {order_id} 已有售后记录（{order['after_sales_status']}），如需帮助请联系人工客服。"
+
+    if ctx.requires_confirmation and ctx.pending_action == "exchange":
+        ctx.requires_confirmation = False
+        ctx.pending_action = None
+        ctx.after_sales_status = "exchange_requested"
+        ctx.return_reason = reason
+        rma = f"RMA-{random.randint(100000, 999999)}"
+        await context.context.stream(ProgressUpdateEvent(text=f"换货申请已提交，RMA {rma}"))
+        return (
+            f"✅ 换货申请已提交！\n"
+            f"换货编号：{rma}\n订单：{order_id}\n原因：{reason}\n"
+            f"请将商品按原包装寄回，收到后1-2个工作日发出新商品。\n"
+            f"换货运费由商家承担（质量问题）。"
+        )
+
+    ctx.requires_confirmation = True
+    ctx.pending_action = "exchange"
+    ctx.confirmation_prompt = f"确认对订单 {order_id} 申请换货？"
+    return (
+        f"⚠️ 换货确认\n\n订单：{order_id}\n"
+        f"商品：{'、'.join(i['name'] for i in order['items'])}\n"
+        f"换货原因：{reason}\n\n"
+        f"回复「确认」继续操作。"
     )
 
 

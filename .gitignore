@@ -46,6 +46,7 @@ node_modules/
 # ===== 日志 =====
 *.log
 logs/
+python-backend/logs/
 *.log.*
 
 # ===== 数据库 =====

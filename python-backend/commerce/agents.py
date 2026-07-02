@@ -15,9 +15,12 @@ from .tools import (
     cancel_order,
     check_after_sales_eligibility,
     check_content_safety,
+    create_exchange_request,
     create_support_ticket,
     faq_lookup_tool,
+    get_logistics_status_tool,
     get_order_detail,
+    get_ticket_status_tool,
     lookup_order,
     rag_retrieve_tool,
     request_refund,
@@ -32,12 +35,15 @@ _lookup_order = lookup_order
 _faq_lookup = faq_lookup_tool
 _rag_retrieve = rag_retrieve_tool
 _track_shipment = track_shipment
+_get_logistics_status = get_logistics_status_tool
 _get_order_detail = get_order_detail
 _request_refund = request_refund
 _request_return = request_return
+_exchange_request = create_exchange_request
 _cancel_order = cancel_order
 _check_eligibility = check_after_sales_eligibility
 _create_ticket = create_support_ticket
+_get_ticket_status = get_ticket_status_tool
 
 # =============================================================================
 #  Agent #1: TriageAgent — entry point, intent routing
@@ -141,7 +147,7 @@ logistics_agent = Agent[CommerceCareChatContext](
         "5. 如果是已签收状态但用户表示未收到，建议用户联系人工客服。\n\n"
         "完成后如用户有进一步需求，根据意图转接；否则回到 Triage Agent。"
     ),
-    tools=[_track_shipment, _lookup_order],
+    tools=[_track_shipment, _get_logistics_status, _lookup_order],
     input_guardrails=[relevance_guardrail, safety_guardrail],
 )
 
@@ -176,6 +182,7 @@ after_sales_agent = Agent[CommerceCareChatContext](
         _check_eligibility,
         _request_refund,
         _request_return,
+        _exchange_request,
         _cancel_order,
     ],
     input_guardrails=[relevance_guardrail, safety_guardrail],
@@ -207,8 +214,8 @@ human_handoff_agent = Agent[CommerceCareChatContext](
         "创建工单后，如果用户还有简单问题可以继续帮助；否则告知等待人工联系即可。\n"
         "完成后回到 Triage Agent（如果用户有其他需求）。"
     ),
-    tools=[_create_ticket, _lookup_order],
-    input_guardrails=[safety_guardrail],  # Human handoff agent uses safety only, relevance is too restrictive for this agent
+    tools=[_create_ticket, _get_ticket_status, _lookup_order],
+    input_guardrails=[safety_guardrail],  # Human handoff agent uses safety only
 )
 
 
