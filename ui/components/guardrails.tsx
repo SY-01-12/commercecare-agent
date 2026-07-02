@@ -13,14 +13,14 @@ interface GuardrailsProps {
 
 export function Guardrails({ guardrails, inputGuardrails }: GuardrailsProps) {
   const guardrailNameMap: Record<string, string> = {
-    relevance_guardrail: "Relevance Guardrail",
-    jailbreak_guardrail: "Jailbreak Guardrail",
+    relevance_guardrail: "Domain Relevance Guardrail",
+    safety_guardrail: "Safety Guardrail",
   };
 
   const guardrailDescriptionMap: Record<string, string> = {
-    "Relevance Guardrail": "Ensure messages are relevant to airline support",
-    "Jailbreak Guardrail":
-      "Detect and block attempts to bypass or override system instructions",
+    "Domain Relevance Guardrail": "检测消息是否与电商售后服务相关",
+    "Safety Guardrail":
+      "拦截隐私泄露、欺诈、越狱攻击和高风险操作",
   };
 
   const extractGuardrailName = (rawName: string): string =>

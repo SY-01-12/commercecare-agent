@@ -34,7 +34,7 @@ export function ConversationContext({ context }: ConversationContextProps) {
 
   return (
     <PanelSection
-      title="Conversation Context"
+      title="会话上下文"
       icon={<BookText className="h-4 w-4 text-blue-600" />}
     >
       <Card className="bg-gradient-to-r from-white to-gray-50 border-gray-200 shadow-sm">

@@ -7,10 +7,10 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Airlines Agent Orchestration",
-  description: "An interface for airline agent orchestration",
+  title: "智售管家 — CommerceCare Agent",
+  description: "基于多智能体的电商售后客服系统",
   icons: {
-    icon: "/openai_logo.svg",
+    icon: "/commercecare_icon.svg",
   },
 };
 
@@ -20,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <body className={inter.className}>
         <Script
           src="https://cdn.platform.openai.com/deployments/chatkit/chatkit.js"

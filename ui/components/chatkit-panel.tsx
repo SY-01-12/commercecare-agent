@@ -29,7 +29,7 @@ export function ChatKitPanel({
       domainKey: CHATKIT_DOMAIN_KEY,
     },
     composer: {
-      placeholder: "Message...",
+      placeholder: "输入您的问题...",
     },
     history: {
       enabled: false,
@@ -47,17 +47,27 @@ export function ChatKitPanel({
     },
     initialThread: initialThreadId ?? null,
     startScreen: {
-      greeting: "Hi! I'm your airline assistant. How can I help today?",
+      greeting: "👋 您好！我是智售管家，您的专属电商售后助手。有什么可以帮您的？",
       prompts: [
-        { label: "Change my seat", prompt: "Can you move me to seat 14C?" },
         {
-          label: "Flight status",
-          prompt: "What's the status of flight FLT-123?",
+          label: "📦 查询订单",
+          prompt: "帮我查一下订单 ORD-20260701-001",
         },
         {
-          label: "Missed connection",
-          prompt:
-            "My flight from Paris to New York was delayed and I missed my connection to Austin. Also, my checked bag is missing and I need to spend the night in New York. Can you help me?",
+          label: "🚚 物流追踪",
+          prompt: "我想看看我的快递到哪里了",
+        },
+        {
+          label: "🔄 申请退货",
+          prompt: "我收到的商品有问题，想申请退货退款",
+        },
+        {
+          label: "❓ 退换货政策",
+          prompt: "你们的退换货政策是什么？多久可以退货？",
+        },
+        {
+          label: "👨‍💼 联系人工客服",
+          prompt: "我要投诉，帮我找人工客服",
         },
       ],
     },
@@ -89,7 +99,7 @@ export function ChatKitPanel({
     <div className="flex flex-col h-full flex-1 bg-white shadow-sm border border-gray-200 border-t-0 rounded-xl">
       <div className="bg-blue-600 text-white h-12 px-4 flex items-center rounded-t-xl">
         <h2 className="font-semibold text-sm sm:text-base lg:text-lg">
-          Customer View
+          智售管家 · 智能客服
         </h2>
       </div>
       <div className="flex-1 overflow-hidden pb-1.5">
