@@ -34,7 +34,12 @@ def _get_embedding(texts: list[str]) -> list[list[float]]:
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY environment variable is required for embeddings")
 
-    client = OpenAI(api_key=api_key)
+    base_url = os.environ.get("OPENAI_BASE_URL")
+    client_kwargs = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+
+    client = OpenAI(**client_kwargs)
     response = client.embeddings.create(
         model=_EMBEDDING_MODEL,
         input=texts,

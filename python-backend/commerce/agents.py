@@ -25,7 +25,7 @@ from .tools import (
     track_shipment,
 )
 
-MODEL = "gpt-5.2"
+MODEL = "gpt-4.1-mini"
 
 # Aliases to avoid name collisions with function_tool objects in agent instructions.
 _lookup_order = lookup_order
