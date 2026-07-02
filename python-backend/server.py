@@ -1,14 +1,16 @@
-# Adapted from openai/openai-cs-agents-demo (MIT License)
+# Adapted and significantly modified from openai/openai-cs-agents-demo (MIT License)
 # Copyright (c) 2025 OpenAI
 # See NOTICE.md and LICENSE for full attribution.
+#
+# CommerceCare Agent — ChatKit server implementation.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-import asyncio
-import json
 from typing import Any, AsyncIterator, Dict, List, Optional
 from uuid import uuid4
 
@@ -27,30 +29,31 @@ from agents import (
 from agents.exceptions import MaxTurnsExceeded
 from chatkit.agents import stream_agent_response
 from chatkit.server import ChatKitServer
+from chatkit.store import NotFoundError
 from chatkit.types import (
     Action,
     AssistantMessageContent,
     AssistantMessageItem,
     ClientEffectEvent,
+    ProgressUpdateEvent,
     ThreadItemDoneEvent,
     ThreadMetadata,
     ThreadStreamEvent,
     UserMessageItem,
     WidgetItem,
-    ProgressUpdateEvent,
 )
-from chatkit.store import NotFoundError
 
-from airline.context import AirlineAgentChatContext, AirlineAgentContext, create_initial_context, public_context
-from airline.agents import (
-    booking_cancellation_agent,
-    faq_agent,
-    flight_information_agent,
-    refunds_compensation_agent,
-    seat_special_services_agent,
-    triage_agent,
+from commerce.agents import get_agent_by_name, build_agents_list, triage_agent
+from commerce.context import (
+    CommerceCareAgentContext,
+    CommerceCareChatContext,
+    create_initial_context,
+    public_context,
 )
 from memory_store import MemoryStore
+
+
+# -- Event models -------------------------------------------------------------
 
 
 class AgentEvent(BaseModel):
@@ -71,21 +74,10 @@ class GuardrailCheck(BaseModel):
     timestamp: float
 
 
-def _get_agent_by_name(name: str):
-    """Return the agent object by name."""
-    agents = {
-        triage_agent.name: triage_agent,
-        faq_agent.name: faq_agent,
-        seat_special_services_agent.name: seat_special_services_agent,
-        flight_information_agent.name: flight_information_agent,
-        booking_cancellation_agent.name: booking_cancellation_agent,
-        refunds_compensation_agent.name: refunds_compensation_agent,
-    }
-    return agents.get(name, triage_agent)
+# -- Helpers ------------------------------------------------------------------
 
 
 def _get_guardrail_name(g) -> str:
-    """Extract a friendly guardrail name."""
     name_attr = getattr(g, "name", None)
     if isinstance(name_attr, str) and name_attr:
         return name_attr
@@ -96,28 +88,6 @@ def _get_guardrail_name(g) -> str:
     if isinstance(fn_name, str) and fn_name:
         return fn_name.replace("_", " ").title()
     return str(g)
-
-
-def _build_agents_list() -> List[Dict[str, Any]]:
-    """Build a list of all available agents and their metadata."""
-
-    def make_agent_dict(agent):
-        return {
-            "name": agent.name,
-            "description": getattr(agent, "handoff_description", ""),
-            "handoffs": [getattr(h, "agent_name", getattr(h, "name", "")) for h in getattr(agent, "handoffs", [])],
-            "tools": [getattr(t, "name", getattr(t, "__name__", "")) for t in getattr(agent, "tools", [])],
-            "input_guardrails": [_get_guardrail_name(g) for g in getattr(agent, "input_guardrails", [])],
-        }
-
-    return [
-        make_agent_dict(triage_agent),
-        make_agent_dict(faq_agent),
-        make_agent_dict(seat_special_services_agent),
-        make_agent_dict(flight_information_agent),
-        make_agent_dict(booking_cancellation_agent),
-        make_agent_dict(refunds_compensation_agent),
-    ]
 
 
 def _user_message_to_text(message: UserMessageItem) -> str:
@@ -132,24 +102,28 @@ def _user_message_to_text(message: UserMessageItem) -> str:
 def _parse_tool_args(raw_args: Any) -> Any:
     if isinstance(raw_args, str):
         try:
-            import json
-
             return json.loads(raw_args)
         except Exception:
             return raw_args
     return raw_args
 
 
+# -- Conversation state -------------------------------------------------------
+
+
 @dataclass
 class ConversationState:
     input_items: List[Any] = field(default_factory=list)
-    context: AirlineAgentContext = field(default_factory=create_initial_context)
+    context: CommerceCareAgentContext = field(default_factory=create_initial_context)
     current_agent_name: str = triage_agent.name
     events: List[AgentEvent] = field(default_factory=list)
     guardrails: List[GuardrailCheck] = field(default_factory=list)
 
 
-class AirlineServer(ChatKitServer[dict[str, Any]]):
+# -- Server -------------------------------------------------------------------
+
+
+class CommerceCareServer(ChatKitServer[dict[str, Any]]):
     def __init__(self) -> None:
         self.store = MemoryStore()
         super().__init__(self.store)
@@ -171,13 +145,17 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
                 return await self.store.load_thread(thread_id, context)
             except NotFoundError:
                 pass
-        new_thread = ThreadMetadata(id=self.store.generate_thread_id(context), created_at=datetime.now())
+        new_thread = ThreadMetadata(
+            id=self.store.generate_thread_id(context),
+            created_at=datetime.now(),
+        )
         await self.store.save_thread(new_thread, context)
         self._state_for_thread(new_thread.id)
         return new_thread
 
-    async def ensure_thread(self, thread_id: Optional[str], context: dict[str, Any]) -> ThreadMetadata:
-        """Public wrapper to ensure a thread exists."""
+    async def ensure_thread(
+        self, thread_id: Optional[str], context: dict[str, Any]
+    ) -> ThreadMetadata:
         return await self._ensure_thread(thread_id, context)
 
     def _record_guardrails(
@@ -188,9 +166,11 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
     ) -> List[GuardrailCheck]:
         checks: List[GuardrailCheck] = []
         timestamp = time.time() * 1000
-        agent = _get_agent_by_name(agent_name)
+        agent = get_agent_by_name(agent_name)
         for guardrail in getattr(agent, "input_guardrails", []):
-            result = next((r for r in guardrail_results if r.guardrail == guardrail), None)
+            result = next(
+                (r for r in guardrail_results if r.guardrail == guardrail), None
+            )
             reasoning = ""
             passed = True
             if result:
@@ -215,12 +195,15 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
             return val[:limit] + "…"
         return val
 
-    async def _broadcast_delta(self, thread: ThreadMetadata, delta_events: list[AgentEvent]) -> None:
-        """Send a delta-only payload (used for transient progress updates)."""
+    async def _broadcast_delta(
+        self, thread: ThreadMetadata, delta_events: list[AgentEvent]
+    ) -> None:
         listeners = self._listeners.get(thread.id, [])
         if not listeners:
             return
-        payload = json.dumps({"events_delta": [e.model_dump() for e in delta_events]}, default=str)
+        payload = json.dumps(
+            {"events_delta": [e.model_dump() for e in delta_events]}, default=str
+        )
         for q in list(listeners):
             try:
                 q.put_nowait(payload)
@@ -232,7 +215,7 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
         run_items: List[Any],
         current_agent_name: str,
         thread_id: str,
-    ) -> (List[AgentEvent], str):
+    ) -> tuple[List[AgentEvent], str]:
         events: List[AgentEvent] = []
         active_agent = current_agent_name
         for item in run_items:
@@ -254,8 +237,11 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
                         id=uuid4().hex,
                         type="handoff",
                         agent=item.source_agent.name,
-                        content=f"{item.source_agent.name} -> {item.target_agent.name}",
-                        metadata={"source_agent": item.source_agent.name, "target_agent": item.target_agent.name},
+                        content=f"{item.source_agent.name} → {item.target_agent.name}",
+                        metadata={
+                            "source_agent": item.source_agent.name,
+                            "target_agent": item.target_agent.name,
+                        },
                         timestamp=now_ms,
                     )
                 )
@@ -266,7 +252,8 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
                     (
                         h
                         for h in getattr(from_agent, "handoffs", [])
-                        if isinstance(h, Handoff) and getattr(h, "agent_name", None) == to_agent.name
+                        if isinstance(h, Handoff)
+                        and getattr(h, "agent_name", None) == to_agent.name
                     ),
                     None,
                 )
@@ -327,8 +314,36 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
             user_text = _user_message_to_text(input_user_message)
             state.input_items.append({"content": user_text, "role": "user"})
 
-        previous_context = public_context(state.context)
-        chat_context = AirlineAgentChatContext(
+        # Check for confirmation response
+        if state.context.requires_confirmation and user_text.strip():
+            lower = user_text.strip().lower()
+            is_confirm = any(
+                kw in lower for kw in ["确认", "是的", "同意", "好的", "可以", "yes", "ok", "确认退款", "确认退货", "确认取消"]
+            )
+            if not is_confirm:
+                state.context.requires_confirmation = False
+                pending = state.context.pending_action
+                state.context.pending_action = None
+                state.context.confirmation_prompt = None
+                state.input_items.append({
+                    "role": "assistant",
+                    "content": f"已取消{pending or '操作'}。如有其他需要请随时告诉我。",
+                })
+                yield ThreadItemDoneEvent(
+                    item=AssistantMessageItem(
+                        id=self.store.generate_item_id("message", thread, context),
+                        thread_id=thread.id,
+                        created_at=datetime.now(),
+                        content=[
+                            AssistantMessageContent(
+                                text=f"已取消{pending or '操作'}。如有其他需要请随时告诉我。"
+                            )
+                        ],
+                    )
+                )
+                return
+
+        chat_context = CommerceCareChatContext(
             thread=thread,
             store=self.store,
             request_context=context,
@@ -336,20 +351,22 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
         )
         streamed_items_seen = 0
 
-        # Tell the client which thread to bind runner updates to before streaming starts.
-        yield ClientEffectEvent(name="runner_bind_thread", data={"thread_id": thread.id, "ts": time.time()})
+        yield ClientEffectEvent(
+            name="runner_bind_thread",
+            data={"thread_id": thread.id, "ts": time.time()},
+        )
 
         try:
             result = Runner.run_streamed(
-                _get_agent_by_name(state.current_agent_name),
+                get_agent_by_name(state.current_agent_name),
                 state.input_items,
                 context=chat_context,
             )
             async for event in stream_agent_response(chat_context, result):
-                if isinstance(event, ProgressUpdateEvent) or getattr(event, "type", "") == "progress_update_event":
-                    # Ignore progress updates for the Runner panel; ChatKit will handle them separately.
+                if isinstance(event, ProgressUpdateEvent) or getattr(
+                    event, "type", ""
+                ) == "progress_update_event":
                     continue
-                # If this is a run-item event, convert and broadcast immediately.
                 if hasattr(event, "item"):
                     try:
                         run_item = getattr(event, "item")
@@ -372,7 +389,7 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
                                     "events": [e.model_dump() for e in new_events],
                                 },
                             )
-                    except Exception as err:
+                    except Exception:
                         pass
                 yield event
                 new_items = result.new_items[streamed_items_seen:]
@@ -404,7 +421,9 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
             reasoning = getattr(gr_output, "reasoning", "")
             timestamp = time.time() * 1000
             checks: List[GuardrailCheck] = []
-            for guardrail in _get_agent_by_name(state.current_agent_name).input_guardrails:
+            for guardrail in get_agent_by_name(
+                state.current_agent_name
+            ).input_guardrails:
                 checks.append(
                     GuardrailCheck(
                         id=uuid4().hex,
@@ -416,7 +435,7 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
                     )
                 )
             state.guardrails = checks
-            refusal = "Sorry, I can only answer questions related to airline travel."
+            refusal = "抱歉，我只能回答与电商售后服务相关的问题。如有其他需求，请拨打客服热线 400-888-6666。"
             state.input_items.append({"role": "assistant", "content": refusal})
             yield ThreadItemDoneEvent(
                 item=AssistantMessageItem(
@@ -427,9 +446,12 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
                 )
             )
             return
+
         state.input_items = result.to_input_list()
         remaining_items = result.new_items[streamed_items_seen:]
-        new_events, active_agent = self._record_events(remaining_items, state.current_agent_name, thread.id)
+        new_events, active_agent = self._record_events(
+            remaining_items, state.current_agent_name, thread.id
+        )
         state.events.extend(new_events)
         final_agent_name = active_agent
         try:
@@ -444,7 +466,14 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
         )
 
         new_context = public_context(state.context)
-        changes = {k: new_context[k] for k in new_context if previous_context.get(k) != new_context[k]}
+        previous_context = public_context(
+            CommerceCareAgentContext()
+        )
+        changes = {
+            k: new_context[k]
+            for k in new_context
+            if previous_context.get(k) != new_context[k]
+        }
         if changes:
             state.events.append(
                 AgentEvent(
@@ -478,27 +507,28 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
         sender: WidgetItem | None,
         context: dict[str, Any],
     ) -> AsyncIterator[ThreadStreamEvent]:
-        # No client-handled actions in this demo.
         if False:
             yield
 
-    async def snapshot(self, thread_id: Optional[str], context: dict[str, Any]) -> Dict[str, Any]:
+    async def snapshot(
+        self, thread_id: Optional[str], context: dict[str, Any]
+    ) -> Dict[str, Any]:
         thread = await self._ensure_thread(thread_id, context)
         state = self._state_for_thread(thread.id)
         return {
             "thread_id": thread.id,
             "current_agent": state.current_agent_name,
             "context": public_context(state.context),
-            "agents": _build_agents_list(),
+            "agents": build_agents_list(),
             "events": [e.model_dump() for e in state.events],
             "guardrails": [g.model_dump() for g in state.guardrails],
         }
 
-    # -- Streaming state updates to UI listeners ---------------------------------
+    # -- Streaming helpers ----------------------------------------------------
+
     def _register_listener(self, thread_id: str) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
         self._listeners.setdefault(thread_id, []).append(q)
-        # Push last snapshot if available so late listeners get current state immediately.
         last = self._last_snapshot.get(thread_id)
         if last:
             try:
@@ -508,7 +538,6 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
         return q
 
     def register_listener(self, thread_id: str) -> asyncio.Queue:
-        """Public wrapper for listener registration."""
         return self._register_listener(thread_id)
 
     def _unregister_listener(self, thread_id: str, queue: asyncio.Queue) -> None:
@@ -519,23 +548,24 @@ class AirlineServer(ChatKitServer[dict[str, Any]]):
             self._listeners.pop(thread_id, None)
 
     def unregister_listener(self, thread_id: str, queue: asyncio.Queue) -> None:
-        """Public wrapper for listener cleanup."""
         self._unregister_listener(thread_id, queue)
 
-    async def _broadcast_state(self, thread: ThreadMetadata, context: dict[str, Any]) -> None:
+    async def _broadcast_state(
+        self, thread: ThreadMetadata, context: dict[str, Any]
+    ) -> None:
         listeners = self._listeners.get(thread.id, [])
         if not listeners:
             return
         snap = await self.snapshot(thread.id, context)
-        # Compute delta of new events since last broadcast to reduce payloads
         last_idx = self._last_event_index.get(thread.id, 0)
         total_events = len(snap.get("events", []))
-        delta = snap.get("events", [])[last_idx:] if total_events >= last_idx else snap.get("events", [])
+        delta = (
+            snap.get("events", [])[last_idx:]
+            if total_events >= last_idx
+            else snap.get("events", [])
+        )
         self._last_event_index[thread.id] = total_events
-        payload_obj = {
-            **snap,
-            "events_delta": delta,
-        }
+        payload_obj = {**snap, "events_delta": delta}
         payload = json.dumps(payload_obj, default=str)
         self._last_snapshot[thread.id] = payload
         for q in list(listeners):

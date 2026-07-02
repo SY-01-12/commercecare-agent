@@ -1,6 +1,8 @@
-# Adapted from openai/openai-cs-agents-demo (MIT License)
+# Adapted and significantly modified from openai/openai-cs-agents-demo (MIT License)
 # Copyright (c) 2025 OpenAI
 # See NOTICE.md and LICENSE for full attribution.
+#
+# CommerceCare Agent — FastAPI application entry point.
 
 from __future__ import annotations as _annotations
 
@@ -13,28 +15,28 @@ from fastapi import Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
-from airline.agents import (
-    booking_cancellation_agent,
-    faq_agent,
-    flight_information_agent,
-    refunds_compensation_agent,
-    seat_special_services_agent,
+from commerce.agents import (
+    after_sales_agent,
+    human_handoff_agent,
+    knowledge_support_agent,
+    logistics_agent,
+    order_service_agent,
     triage_agent,
 )
-from airline.context import (
-    AirlineAgentChatContext,
-    AirlineAgentContext,
+from commerce.context import (
+    CommerceCareAgentContext,
+    CommerceCareChatContext,
     create_initial_context,
     public_context,
 )
-from server import AirlineServer
+from server import CommerceCareServer
 
-app = FastAPI()
+app = FastAPI(title="CommerceCare Agent", version="0.1.0")
 
 # Disable tracing for zero data retention orgs
 os.environ.setdefault("OPENAI_TRACING_DISABLED", "1")
 
-# CORS configuration (adjust as needed for deployment)
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -43,16 +45,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-chat_server = AirlineServer()
+chat_server = CommerceCareServer()
 
 
-def get_server() -> AirlineServer:
+def get_server() -> CommerceCareServer:
     return chat_server
 
 
 @app.post("/chatkit")
 async def chatkit_endpoint(
-    request: Request, server: AirlineServer = Depends(get_server)
+    request: Request, server: CommerceCareServer = Depends(get_server)
 ) -> Response:
     payload = await request.body()
     result = await server.process(payload, {"request": request})
@@ -66,14 +68,14 @@ async def chatkit_endpoint(
 @app.get("/chatkit/state")
 async def chatkit_state(
     thread_id: str = Query(...),
-    server: AirlineServer = Depends(get_server),
+    server: CommerceCareServer = Depends(get_server),
 ) -> Dict[str, Any]:
     return await server.snapshot(thread_id, {"request": None})
 
 
 @app.get("/chatkit/bootstrap")
 async def chatkit_bootstrap(
-    server: AirlineServer = Depends(get_server),
+    server: CommerceCareServer = Depends(get_server),
 ) -> Dict[str, Any]:
     return await server.snapshot(None, {"request": None})
 
@@ -81,7 +83,7 @@ async def chatkit_bootstrap(
 @app.get("/chatkit/state/stream")
 async def chatkit_state_stream(
     thread_id: str = Query(...),
-    server: AirlineServer = Depends(get_server),
+    server: CommerceCareServer = Depends(get_server),
 ):
     thread = await server.ensure_thread(thread_id, {"request": None})
     queue = server.register_listener(thread.id)
@@ -105,16 +107,16 @@ async def health_check() -> Dict[str, str]:
 
 
 __all__ = [
-    "AirlineAgentChatContext",
-    "AirlineAgentContext",
+    "CommerceCareAgentContext",
+    "CommerceCareChatContext",
+    "after_sales_agent",
     "app",
-    "booking_cancellation_agent",
     "chat_server",
     "create_initial_context",
-    "faq_agent",
-    "flight_information_agent",
+    "human_handoff_agent",
+    "knowledge_support_agent",
+    "logistics_agent",
+    "order_service_agent",
     "public_context",
-    "refunds_compensation_agent",
-    "seat_special_services_agent",
     "triage_agent",
 ]

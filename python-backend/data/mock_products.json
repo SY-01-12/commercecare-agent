@@ -1,0 +1,100 @@
+{
+  "products": {
+    "PROD-101": {
+      "product_id": "PROD-101",
+      "name": "无线蓝牙耳机 Pro",
+      "category": "数码配件",
+      "brand": "声悦",
+      "price": 299.00,
+      "warranty": "12个月",
+      "return_policy": "7天无理由退货（未拆封），15天内质量问题换货",
+      "specs": {
+        "蓝牙版本": "5.3",
+        "续航": "36小时（含充电仓）",
+        "降噪": "主动降噪 ANC",
+        "防水等级": "IPX5"
+      },
+      "stock": 156
+    },
+    "PROD-205": {
+      "product_id": "PROD-205",
+      "name": "USB-C 快充数据线",
+      "category": "数码配件",
+      "brand": "倍能",
+      "price": 29.90,
+      "warranty": "6个月",
+      "return_policy": "7天无理由退货",
+      "specs": {
+        "长度": "1.5米",
+        "功率": "100W",
+        "接口": "USB-C to USB-C",
+        "材质": "编织尼龙"
+      },
+      "stock": 2300
+    },
+    "PROD-310": {
+      "product_id": "PROD-310",
+      "name": "智能手表 S3",
+      "category": "智能穿戴",
+      "brand": "星联",
+      "price": 899.00,
+      "warranty": "24个月",
+      "return_policy": "7天无理由退货（未激活），15天内质量问题换货",
+      "specs": {
+        "屏幕": "1.5英寸 AMOLED",
+        "续航": "14天",
+        "防水": "5ATM",
+        "健康监测": "心率/血氧/睡眠"
+      },
+      "stock": 73
+    },
+    "PROD-420": {
+      "product_id": "PROD-420",
+      "name": "家用空气炸锅 4.5L",
+      "category": "厨房家电",
+      "brand": "厨美",
+      "price": 459.00,
+      "warranty": "12个月",
+      "return_policy": "7天无理由退货，质量问题30天内免费换新",
+      "specs": {
+        "容量": "4.5L",
+        "功率": "1500W",
+        "温控范围": "80-200°C",
+        "内胆材质": "不粘涂层"
+      },
+      "stock": 421
+    },
+    "PROD-150": {
+      "product_id": "PROD-150",
+      "name": "机械键盘 K8 Pro",
+      "category": "电脑外设",
+      "brand": "键皇",
+      "price": 649.00,
+      "warranty": "24个月",
+      "return_policy": "7天无理由退货",
+      "specs": {
+        "轴体": "红轴",
+        "布局": "87键 TKL",
+        "连接": "三模（有线/蓝牙/2.4G）",
+        "背光": "RGB"
+      },
+      "stock": 288
+    },
+    "PROD-151": {
+      "product_id": "PROD-151",
+      "name": "人体工学鼠标",
+      "category": "电脑外设",
+      "brand": "键皇",
+      "price": 199.00,
+      "warranty": "12个月",
+      "return_policy": "7天无理由退货",
+      "specs": {
+        "DPI": "4000",
+        "连接": "双模（蓝牙/2.4G）",
+        "按键数": "6个",
+        "人体工学": "垂直握持"
+      },
+      "stock": 512
+    }
+  }
+}
