@@ -15,9 +15,9 @@ CommerceCare Agent（智售管家）是一个面向电商平台的多智能体�
 
 ## 当前状态
 
-**阶段：电商领域迁移（feat/commerce-domain-migration）**
+**阶段：RAG 知识库集成（feat/rag-knowledge-base）**
 
-已从航旅客服场景完全改造为电商售后客服场景。6 个专业 Agent + 10 个工具 + 双重安全 Guardrail。
+12 份企业知识库文档 + ChromaDB 向量检索 + OpenAI Embeddings。KnowledgeSupportAgent 已升级为 RAG 优先检索，带来源引用和拒答保护。
 
 ## 技术栈
 
@@ -25,6 +25,8 @@ CommerceCare Agent（智售管家）是一个面向电商平台的多智能体�
 |------|------|
 | 后端框架 | Python + FastAPI |
 | 智能体框架 | OpenAI Agents SDK |
+| 向量数据库 | ChromaDB |
+| Embedding | OpenAI text-embedding-3-small |
 | 前端框架 | Next.js + React |
 | UI 组件 | ChatKit / ChatKit React |
 | 数据存储 | 内存存储（当前）→ SQLite（规划中） |
@@ -58,14 +60,22 @@ npm run dev:next
 # → http://localhost:3000
 ```
 
+### 构建 RAG 知识库索引
+
+```bash
+cd python-backend
+source .venv/Scripts/activate
+PYTHONPATH=. python -m rag.cli reindex
+# 或调用 API: GET /rag/reindex
+```
+
 ### 运行测试
 
 ```bash
 cd python-backend
 source .venv/Scripts/activate
 PYTHONPATH=. pytest tests/ -v
-# test_commerce.py: 35 tests
-# test_baseline.py: 11 tests (已过期，保留参考)
+# test_commerce.py: 35 tests | test_rag.py: 16 tests | 合计 51 tests
 ```
 
 ## 演示流程
@@ -102,40 +112,50 @@ PYTHONPATH=. pytest tests/ -v
 2. Triage → Human Handoff Agent
 3. 生成工单编号 TK-xxxxx
 
+**流程 6：RAG 知识库检索**
+
+1. "蓝牙耳机的保修期是多久？"
+2. Triage → Knowledge Support Agent
+3. 从企业知识库检索相关文档，附带来源引用
+
 ## 项目结构
 
 ```
 commercecare-agent/
 ├── README.md
 ├── CLAUDE.md
-├── LICENSE                     # MIT（上游）
+├── LICENSE
 ├── NOTICE.md
 ├── .env.example
 ├── .gitignore
+├── knowledge_base/             # RAG 知识文档（12 份）
+│   ├── products/               # 商品说明
+│   ├── policies/               # 企业政策
+│   ├── after_sales/            # 售后流程
+│   └── faq/                    # 常见问题
 ├── docs/
-│   ├── domain_design.md        # Agent 职责/路由/安全策略
+│   ├── domain_design.md
+│   ├── rag_design.md           # RAG 设计文档
 │   ├── architecture_baseline.md
 │   ├── baseline_runbook.md
 │   ├── project_roadmap.md
 │   └── upstream_audit.md
 ├── python-backend/
-│   ├── main.py                 # FastAPI 入口
+│   ├── main.py                 # FastAPI + RAG 端点
 │   ├── server.py               # CommerceCareServer
-│   ├── memory_store.py         # 内存存储
+│   ├── memory_store.py
 │   ├── requirements.txt
 │   ├── data/                   # Mock 数据
-│   │   ├── mock_orders.json
-│   │   ├── mock_logistics.json
-│   │   ├── mock_products.json
-│   │   └── mock_policies.json
 │   ├── commerce/               # 电商业务模块
-│   │   ├── agents.py           # 6 Agent + Handoff
-│   │   ├── context.py          # 上下文模型
-│   │   ├── guardrails.py       # 安全 Guardrail
-│   │   └── tools.py            # 10 个工具
+│   ├── rag/                    # RAG 模块
+│   │   ├── loader.py           # 文档加载
+│   │   ├── splitter.py         # 文本分块
+│   │   ├── store.py            # ChromaDB 向量存储
+│   │   └── cli.py              # CLI 工具
+│   ├── vector_store/           # 向量库持久化（gitignore）
 │   └── tests/
-│       ├── test_commerce.py    # 35 个电商测试
-│       └── test_baseline.py    # 原始 baseline 测试
+│       ├── test_commerce.py    # 35 tests
+│       └── test_rag.py         # 16 tests
 └── ui/
     ├── app/                    # Next.js App Router
     ├── components/             # React 组件
@@ -144,7 +164,8 @@ commercecare-agent/
 
 ## 文档
 
-- [领域设计文档](docs/domain_design.md) — Agent 职责、路由规则、安全策略、数据模型
+- [RAG 知识库设计](docs/rag_design.md) — 检索架构、技术选型、API 端点
+- [领域设计文档](docs/domain_design.md) — Agent 职责、路由规则、安全策略
 - [架构基线](docs/architecture_baseline.md) — 系统架构图和调用链
 - [项目路线图](docs/project_roadmap.md) — 6 阶段规划
 - [Baseline 运行手册](docs/baseline_runbook.md) — 环境配置和已知问题

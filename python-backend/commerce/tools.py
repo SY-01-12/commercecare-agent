@@ -522,3 +522,47 @@ async def check_content_safety(text: str) -> str:
         return "SAFETY_FLAG:high_risk_refund"
 
     return "SAFETY_OK"
+
+
+# =============================================================================
+#  RAG Knowledge Base Tool
+# =============================================================================
+
+
+@function_tool(
+    name_override="rag_retrieve",
+    description_override="从企业知识库中检索相关文档。用于回答保修、退换货政策、商品参数、会员权益等问题。返回检索到的文档内容和来源。",
+)
+async def rag_retrieve_tool(question: str) -> str:
+    """Retrieve relevant knowledge base documents using RAG.
+
+    Args:
+        question: The user's question to search for.
+
+    Returns:
+        Formatted search results with sources, or guidance if nothing found.
+    """
+    from rag.store import retrieve
+
+    results = retrieve(question, top_k=5, score_threshold=0.45)
+
+    if not results:
+        return (
+            "未在知识库中找到与该问题匹配的相关文档。\n\n"
+            "建议：\n"
+            "1. 尝试换一种方式描述您的问题\n"
+            "2. 联系人工客服获取帮助（拨打 400-888-6666）\n"
+            "3. 在 App/网站的帮助中心搜索更多信息\n\n"
+            "请勿自行编造政策信息。如需进一步帮助，我可以为您转接人工客服。"
+        )
+
+    lines = ["从知识库中检索到以下相关信息：\n"]
+    for i, r in enumerate(results, 1):
+        lines.append(f"### 参考资料 {i}")
+        lines.append(f"**来源**：{r['title']}（{r['source']}）")
+        lines.append(f"**相关度**：{r['score']:.0%}")
+        lines.append(f"{r['content']}\n")
+
+    lines.append("---")
+    lines.append("以上信息来自企业知识库。如仍有疑问，可联系人工客服 400-888-6666。")
+    return "\n".join(lines)

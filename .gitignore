@@ -58,6 +58,8 @@ logs/
 chroma_db/
 faiss_index/
 vector_store/
+rag/vector_store/
+python-backend/vector_store/
 embeddings_cache/
 .chroma/
 
